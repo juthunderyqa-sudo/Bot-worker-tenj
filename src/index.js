@@ -8,6 +8,7 @@ const STATUS_IN_PROGRESS = "В роботі";
 const STATUS_DONE = "Виконана";
 const STATUS_CANCELLED = "Скасована";
 const MAX_DESCRIPTION_LENGTH = 1000;
+const MAX_PHOTOS = 5;
 
 const FORM_STEPS = {
   WAITING_NAME: "waiting_name",
@@ -16,6 +17,7 @@ const FORM_STEPS = {
   WAITING_ADDRESS: "waiting_address",
   WAITING_DESCRIPTION: "waiting_description",
   WAITING_CALL_TIME: "waiting_call_time",
+  WAITING_PHOTOS: "waiting_photos",
   WAITING_CONFIRMATION: "waiting_confirmation"
 };
 
@@ -34,7 +36,16 @@ const SHEET_HEADERS = [
   "status"
 ];
 
-const OPTIONAL_EXTRA_HEADERS = ["updated_at", "last_admin_action"];
+const OPTIONAL_EXTRA_HEADERS = [
+  "updated_at",
+  "last_admin_action",
+  "location_lat",
+  "location_lon",
+  "location_label",
+  "photo_file_ids",
+  "photo_count"
+];
+
 const LOG_HEADERS = ["created_at", "level", "scope", "message", "details"];
 
 const TEXT = {
@@ -42,16 +53,21 @@ const TEXT = {
   START_APPLICATION: "Починаємо оформлення заявки.\n\nВведіть, будь ласка, ваше ім'я.",
   ASK_PHONE: "Введіть номер телефону у форматі <b>380XXXXXXXXX</b>.",
   ASK_EMAIL: "Введіть email або натисніть <b>Пропустити</b>.",
-  ASK_ADDRESS: "Вкажіть адресу або населений пункт, де потрібні роботи.",
+  ASK_ADDRESS: "Надішліть адресу текстом або натисніть кнопку геолокації.",
   ASK_DESCRIPTION: "Коротко опишіть, які роботи потрібно виконати.",
   ASK_CALL_TIME: "Вкажіть зручний час для дзвінка або натисніть <b>Пропустити</b>.",
+  ASK_PHOTOS: "Надішліть 1-5 фото об'єкта/проблеми. Коли завершите — натисніть <b>Готово з фото</b> або <b>Пропустити</b>.",
   ASK_CONFIRM: "Перевірте заявку нижче.\n\nЯкщо все правильно — натисніть <b>Підтвердити заявку</b>.",
   INVALID_NAME: "Ім'я має містити щонайменше 2 символи. Спробуйте ще раз.",
   INVALID_PHONE: "Номер має бути строго у форматі <b>380XXXXXXXXX</b>. Спробуйте ще раз.",
   INVALID_EMAIL: "Email виглядає некоректно. Спробуйте ще раз або натисніть <b>Пропустити</b>.",
-  INVALID_ADDRESS: "Будь ласка, вкажіть коректну адресу або населений пункт.",
+  INVALID_ADDRESS: "Будь ласка, вкажіть адресу текстом або надішліть геолокацію.",
   INVALID_DESCRIPTION: "Опис має містити щонайменше 5 символів.",
   TOO_LONG_DESCRIPTION: "Опис занадто довгий. Скоротіть його до 1000 символів.",
+  INVALID_PHOTO_STEP: "Тут очікується фото. Надішліть фото, натисніть <b>Готово з фото</b> або <b>Пропустити</b>.",
+  PHOTO_SAVED: "Фото додано до заявки.",
+  PHOTO_LIMIT: "До заявки можна додати максимум 5 фото.",
+  PHOTO_DONE_EMPTY: "Спочатку надішліть хоча б одне фото або натисніть <b>Пропустити</b>.",
   CANCEL: "Поточну дію скасовано.",
   SUCCESS: "Дякуємо. Вашу заявку збережено.\n\nМи зв'яжемося з вами найближчим часом.",
   NO_REQUESTS: "У вас поки немає заявок.",
@@ -67,7 +83,9 @@ const TEXT = {
   TODAY_EMPTY: "Сьогодні нових заявок ще не було.",
   NEW_EMPTY: "Немає заявок зі статусом 'Нова'.",
   STATS_EMPTY: "Поки що недостатньо даних для статистики.",
-  EDIT_PROMPT: "Що хочете змінити у заявці?"
+  EDIT_PROMPT: "Що хочете змінити у заявці?",
+  FIND_PHONE_USAGE: "Використання: <b>/find_phone 380XXXXXXXXX</b>",
+  FIND_PHONE_EMPTY: "За цим номером заявок не знайдено."
 };
 
 const CALLBACKS = {
@@ -83,7 +101,8 @@ const EDIT_FIELDS = {
   email: FORM_STEPS.WAITING_EMAIL,
   address: FORM_STEPS.WAITING_ADDRESS,
   description: FORM_STEPS.WAITING_DESCRIPTION,
-  call_time: FORM_STEPS.WAITING_CALL_TIME
+  call_time: FORM_STEPS.WAITING_CALL_TIME,
+  photos: FORM_STEPS.WAITING_PHOTOS
 };
 
 export default {
@@ -136,6 +155,7 @@ async function handleSetup(request, env) {
       { command: "new_requests", description: "Нові заявки (адмін)" },
       { command: "today", description: "Заявки за сьогодні (адмін)" },
       { command: "stats", description: "Статистика (адмін)" },
+      { command: "find_phone", description: "Пошук за номером (адмін)" },
       { command: "cancel", description: "Скасувати поточну дію" }
     ]
   });
@@ -187,8 +207,7 @@ async function isDuplicateUpdate(env, updateId) {
 }
 
 async function markUpdateProcessed(env, updateId) {
-  const key = `update:${updateId}`;
-  await env.STATE_KV.put(key, "1", { expirationTtl: 60 * 30 });
+  await env.STATE_KV.put(`update:${updateId}`, "1", { expirationTtl: 60 * 30 });
 }
 
 async function handleMessage(message, env) {
@@ -198,31 +217,31 @@ async function handleMessage(message, env) {
   if (!chatId) return;
 
   if (!(await checkRateLimit(env, chatId, message.from?.id))) {
-    await sendMessage(env, chatId, TEXT.FLOOD_LIMIT, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(env, chatId, TEXT.FLOOD_LIMIT, { reply_markup: mainMenuKeyboard(isAdmin(env, message.from?.id)) });
     return;
   }
 
   if (text === "/start" || text === "Головне меню") {
     await clearState(env, chatId);
-    await sendMessage(env, chatId, TEXT.START, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(env, chatId, TEXT.START, { reply_markup: mainMenuKeyboard(isAdmin(env, message.from?.id)) });
     return;
   }
 
   if (text === "/cancel") {
     await clearState(env, chatId);
-    await sendMessage(env, chatId, TEXT.CANCEL, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(env, chatId, TEXT.CANCEL, { reply_markup: mainMenuKeyboard(isAdmin(env, message.from?.id)) });
     return;
   }
 
   if (text === "/my_requests" || text === "Мої заявки") {
     await clearState(env, chatId);
-    await sendUserRequests(env, chatId);
+    await sendUserRequests(env, chatId, message.from?.id);
     return;
   }
 
   if (text === "/new_requests") {
     if (!isAdmin(env, message.from?.id)) {
-      await sendMessage(env, chatId, TEXT.ADMIN_ONLY, { reply_markup: mainMenuKeyboard() });
+      await sendMessage(env, chatId, TEXT.ADMIN_ONLY, { reply_markup: mainMenuKeyboard(false) });
       return;
     }
     await sendAdminRequestsByStatus(env, chatId, STATUS_NEW, TEXT.NEW_EMPTY);
@@ -231,7 +250,7 @@ async function handleMessage(message, env) {
 
   if (text === "/today") {
     if (!isAdmin(env, message.from?.id)) {
-      await sendMessage(env, chatId, TEXT.ADMIN_ONLY, { reply_markup: mainMenuKeyboard() });
+      await sendMessage(env, chatId, TEXT.ADMIN_ONLY, { reply_markup: mainMenuKeyboard(false) });
       return;
     }
     await sendTodayRequests(env, chatId);
@@ -240,10 +259,19 @@ async function handleMessage(message, env) {
 
   if (text === "/stats") {
     if (!isAdmin(env, message.from?.id)) {
-      await sendMessage(env, chatId, TEXT.ADMIN_ONLY, { reply_markup: mainMenuKeyboard() });
+      await sendMessage(env, chatId, TEXT.ADMIN_ONLY, { reply_markup: mainMenuKeyboard(false) });
       return;
     }
     await sendStats(env, chatId);
+    return;
+  }
+
+  if (text.startsWith("/find_phone")) {
+    if (!isAdmin(env, message.from?.id)) {
+      await sendMessage(env, chatId, TEXT.ADMIN_ONLY, { reply_markup: mainMenuKeyboard(false) });
+      return;
+    }
+    await findRequestsByPhone(env, chatId, text);
     return;
   }
 
@@ -253,15 +281,14 @@ async function handleMessage(message, env) {
       await sendMessage(env, chatId, TEXT.ACTIVE_FORM_EXISTS, { reply_markup: cancelKeyboard() });
       return;
     }
-    await saveState(env, chatId, { step: FORM_STEPS.WAITING_NAME, data: {} });
+    await saveState(env, chatId, newState(FORM_STEPS.WAITING_NAME, {}, false));
     await sendMessage(env, chatId, TEXT.START_APPLICATION, { reply_markup: cancelKeyboard() });
     return;
   }
 
   const state = await getState(env, chatId);
-
   if (!state) {
-    await sendMessage(env, chatId, TEXT.FALLBACK, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(env, chatId, TEXT.FALLBACK, { reply_markup: mainMenuKeyboard(isAdmin(env, message.from?.id)) });
     return;
   }
 
@@ -271,7 +298,7 @@ async function handleMessage(message, env) {
 async function processFormStep(message, state, env) {
   const chatId = message.chat.id;
   const text = (message.text || "").trim();
-  const data = state.data || {};
+  const data = normalizeDraft(state.data || {});
 
   switch (state.step) {
     case FORM_STEPS.WAITING_NAME:
@@ -280,8 +307,7 @@ async function processFormStep(message, state, env) {
         return;
       }
       data.name = text;
-      await saveState(env, chatId, { step: FORM_STEPS.WAITING_PHONE, data, isEditing: false });
-      await sendMessage(env, chatId, TEXT.ASK_PHONE, { reply_markup: cancelKeyboard() });
+      await moveToNextStep(env, chatId, state, data, FORM_STEPS.WAITING_PHONE, TEXT.ASK_PHONE, cancelKeyboard());
       return;
 
     case FORM_STEPS.WAITING_PHONE: {
@@ -291,8 +317,7 @@ async function processFormStep(message, state, env) {
         return;
       }
       data.phone = normalizedPhone;
-      await saveState(env, chatId, { step: FORM_STEPS.WAITING_EMAIL, data, isEditing: false });
-      await sendMessage(env, chatId, TEXT.ASK_EMAIL, { reply_markup: skipKeyboard() });
+      await moveToNextStep(env, chatId, state, data, FORM_STEPS.WAITING_EMAIL, TEXT.ASK_EMAIL, skipKeyboard());
       return;
     }
 
@@ -306,18 +331,25 @@ async function processFormStep(message, state, env) {
         }
         data.email = text;
       }
-      await saveState(env, chatId, { step: FORM_STEPS.WAITING_ADDRESS, data, isEditing: false });
-      await sendMessage(env, chatId, TEXT.ASK_ADDRESS, { reply_markup: cancelKeyboard() });
+      await moveToNextStep(env, chatId, state, data, FORM_STEPS.WAITING_ADDRESS, TEXT.ASK_ADDRESS, addressKeyboard());
       return;
 
     case FORM_STEPS.WAITING_ADDRESS:
-      if (!validateAddress(text)) {
-        await sendMessage(env, chatId, TEXT.INVALID_ADDRESS, { reply_markup: cancelKeyboard() });
-        return;
+      if (message.location) {
+        data.location_lat = String(message.location.latitude);
+        data.location_lon = String(message.location.longitude);
+        data.location_label = `https://maps.google.com/?q=${message.location.latitude},${message.location.longitude}`;
+        if (!data.address || data.address === SKIP_VALUE || data.address === "Геолокація") {
+          data.address = "Геолокація";
+        }
+      } else {
+        if (!validateAddress(text)) {
+          await sendMessage(env, chatId, TEXT.INVALID_ADDRESS, { reply_markup: addressKeyboard() });
+          return;
+        }
+        data.address = text;
       }
-      data.address = text;
-      await saveState(env, chatId, { step: FORM_STEPS.WAITING_DESCRIPTION, data, isEditing: false });
-      await sendMessage(env, chatId, TEXT.ASK_DESCRIPTION, { reply_markup: cancelKeyboard() });
+      await moveToNextStep(env, chatId, state, data, FORM_STEPS.WAITING_DESCRIPTION, TEXT.ASK_DESCRIPTION, cancelKeyboard());
       return;
 
     case FORM_STEPS.WAITING_DESCRIPTION:
@@ -330,16 +362,16 @@ async function processFormStep(message, state, env) {
         return;
       }
       data.description = text;
-      await saveState(env, chatId, { step: FORM_STEPS.WAITING_CALL_TIME, data, isEditing: false });
-      await sendMessage(env, chatId, TEXT.ASK_CALL_TIME, { reply_markup: skipKeyboard() });
+      await moveToNextStep(env, chatId, state, data, FORM_STEPS.WAITING_CALL_TIME, TEXT.ASK_CALL_TIME, skipKeyboard());
       return;
 
     case FORM_STEPS.WAITING_CALL_TIME:
       data.call_time = text === "Пропустити" || !text ? SKIP_VALUE : text;
-      await saveState(env, chatId, { step: FORM_STEPS.WAITING_CONFIRMATION, data, isEditing: false });
-      await sendMessage(env, chatId, `${TEXT.ASK_CONFIRM}\n\n${formatClientPreview(data)}`, {
-        reply_markup: confirmKeyboard()
-      });
+      await moveToNextStep(env, chatId, state, data, FORM_STEPS.WAITING_PHOTOS, TEXT.ASK_PHOTOS, photoKeyboard(true));
+      return;
+
+    case FORM_STEPS.WAITING_PHOTOS:
+      await handlePhotoStep(message, state, data, env);
       return;
 
     case FORM_STEPS.WAITING_CONFIRMATION:
@@ -348,8 +380,72 @@ async function processFormStep(message, state, env) {
 
     default:
       await clearState(env, chatId);
-      await sendMessage(env, chatId, TEXT.FALLBACK, { reply_markup: mainMenuKeyboard() });
+      await sendMessage(env, chatId, TEXT.FALLBACK, { reply_markup: mainMenuKeyboard(isAdmin(env, message.from?.id)) });
   }
+}
+
+async function handlePhotoStep(message, state, data, env) {
+  const chatId = message.chat.id;
+  const text = (message.text || "").trim();
+  const photos = Array.isArray(data.photo_file_ids) ? data.photo_file_ids : [];
+
+  if (text === "Пропустити") {
+    data.photo_file_ids = [];
+    data.photo_count = "0";
+    await sendConfirmation(env, chatId, data);
+    return;
+  }
+
+  if (text === "Готово з фото") {
+    if (!photos.length) {
+      await sendMessage(env, chatId, TEXT.PHOTO_DONE_EMPTY, { reply_markup: photoKeyboard(true) });
+      return;
+    }
+    data.photo_count = String(photos.length);
+    await sendConfirmation(env, chatId, data);
+    return;
+  }
+
+  if (Array.isArray(message.photo) && message.photo.length) {
+    if (photos.length >= MAX_PHOTOS) {
+      await sendMessage(env, chatId, TEXT.PHOTO_LIMIT, { reply_markup: photoKeyboard(true) });
+      return;
+    }
+
+    const best = message.photo[message.photo.length - 1];
+    if (!photos.includes(best.file_id)) {
+      photos.push(best.file_id);
+    }
+
+    data.photo_file_ids = photos;
+    data.photo_count = String(photos.length);
+    await saveState(env, chatId, newState(FORM_STEPS.WAITING_PHOTOS, data, state.isEditing));
+    await sendMessage(
+      env,
+      chatId,
+      `${TEXT.PHOTO_SAVED} (${photos.length}/${MAX_PHOTOS})`,
+      { reply_markup: photoKeyboard(true) }
+    );
+    return;
+  }
+
+  await sendMessage(env, chatId, TEXT.INVALID_PHOTO_STEP, { reply_markup: photoKeyboard(true) });
+}
+
+async function moveToNextStep(env, chatId, state, data, nextStep, nextText, keyboard) {
+  if (state.isEditing) {
+    await sendConfirmation(env, chatId, data);
+    return;
+  }
+  await saveState(env, chatId, newState(nextStep, data, false));
+  await sendMessage(env, chatId, nextText, { reply_markup: keyboard });
+}
+
+async function sendConfirmation(env, chatId, data) {
+  await saveState(env, chatId, newState(FORM_STEPS.WAITING_CONFIRMATION, data, false));
+  await sendMessage(env, chatId, `${TEXT.ASK_CONFIRM}\n\n${formatClientPreview(data)}`, {
+    reply_markup: confirmKeyboard()
+  });
 }
 
 async function handleCallbackQuery(callbackQuery, env) {
@@ -366,9 +462,9 @@ async function handleCallbackQuery(callbackQuery, env) {
     }
 
     if (data === CALLBACKS.CONFIRM_CANCEL) {
-      await clearState(env, message.chat.id);
+      await clearState(message.chat.id ? env : env, message.chat.id);
       await answerCallbackQuery(env, callbackQuery.id, TEXT.CANCEL, false);
-      await sendMessage(env, message.chat.id, TEXT.CANCEL, { reply_markup: mainMenuKeyboard() });
+      await sendMessage(env, message.chat.id, TEXT.CANCEL, { reply_markup: mainMenuKeyboard(isAdmin(env, fromId)) });
       return;
     }
 
@@ -394,9 +490,7 @@ async function handleCallbackQuery(callbackQuery, env) {
     }
 
     const requestId = parts[1];
-    const statusCode = parts[2];
-    const statusValue = mapStatusCode(statusCode);
-
+    const statusValue = mapStatusCode(parts[2]);
     if (!statusValue) {
       await answerCallbackQuery(env, callbackQuery.id, TEXT.UNKNOWN_ACTION, true);
       return;
@@ -410,7 +504,6 @@ async function handleCallbackQuery(callbackQuery, env) {
 
     const currentText = message.text || message.caption || "";
     const newText = replaceStatusInText(currentText, statusValue, updated.updatedAt, callbackQuery.from);
-
     const payload = {
       chat_id: message.chat.id,
       message_id: message.message_id,
@@ -447,14 +540,14 @@ async function handleConfirmSubmit(callbackQuery, env) {
     return;
   }
 
-  const payload = buildApplicationPayload(callbackQuery.from, state.data || {}, env);
+  const payload = buildApplicationPayload(callbackQuery.from, normalizeDraft(state.data || {}), env);
   const dedupeKey = `request-submit:${chatId}:${hashPayload(payload)}`;
   const alreadySubmitted = await env.STATE_KV.get(dedupeKey);
 
   if (alreadySubmitted === "1") {
     await clearState(env, chatId);
     await answerCallbackQuery(env, callbackQuery.id, TEXT.SUCCESS, false);
-    await sendMessage(env, chatId, TEXT.SUCCESS, { reply_markup: afterSubmitKeyboard() });
+    await sendMessage(env, chatId, TEXT.SUCCESS, { reply_markup: afterSubmitKeyboard(isAdmin(env, callbackQuery.from?.id)) });
     return;
   }
 
@@ -464,7 +557,7 @@ async function handleConfirmSubmit(callbackQuery, env) {
   await clearState(env, chatId);
 
   await answerCallbackQuery(env, callbackQuery.id, "Заявку підтверджено.", false);
-  await sendMessage(env, chatId, TEXT.SUCCESS, { reply_markup: afterSubmitKeyboard() });
+  await sendMessage(env, chatId, TEXT.SUCCESS, { reply_markup: afterSubmitKeyboard(isAdmin(env, callbackQuery.from?.id)) });
 }
 
 async function handleEditCallback(callbackQuery, env) {
@@ -483,7 +576,12 @@ async function handleEditCallback(callbackQuery, env) {
   }
 
   const nextStep = EDIT_FIELDS[target];
-  await saveState(env, chatId, { step: nextStep, data: state.data, isEditing: true });
+  const data = normalizeDraft(state.data);
+  if (nextStep === FORM_STEPS.WAITING_PHOTOS) {
+    data.photo_file_ids = [];
+    data.photo_count = "0";
+  }
+  await saveState(env, chatId, newState(nextStep, data, true));
   await answerCallbackQuery(env, callbackQuery.id, "Редагування відкрито.", false);
 
   const askMap = {
@@ -492,21 +590,49 @@ async function handleEditCallback(callbackQuery, env) {
     [FORM_STEPS.WAITING_EMAIL]: TEXT.ASK_EMAIL,
     [FORM_STEPS.WAITING_ADDRESS]: TEXT.ASK_ADDRESS,
     [FORM_STEPS.WAITING_DESCRIPTION]: TEXT.ASK_DESCRIPTION,
-    [FORM_STEPS.WAITING_CALL_TIME]: TEXT.ASK_CALL_TIME
+    [FORM_STEPS.WAITING_CALL_TIME]: TEXT.ASK_CALL_TIME,
+    [FORM_STEPS.WAITING_PHOTOS]: TEXT.ASK_PHOTOS
   };
 
   const keyboardMap = {
     [FORM_STEPS.WAITING_NAME]: cancelKeyboard(),
     [FORM_STEPS.WAITING_PHONE]: cancelKeyboard(),
     [FORM_STEPS.WAITING_EMAIL]: skipKeyboard(),
-    [FORM_STEPS.WAITING_ADDRESS]: cancelKeyboard(),
+    [FORM_STEPS.WAITING_ADDRESS]: addressKeyboard(),
     [FORM_STEPS.WAITING_DESCRIPTION]: cancelKeyboard(),
-    [FORM_STEPS.WAITING_CALL_TIME]: skipKeyboard()
+    [FORM_STEPS.WAITING_CALL_TIME]: skipKeyboard(),
+    [FORM_STEPS.WAITING_PHOTOS]: photoKeyboard(true)
   };
 
   await sendMessage(env, chatId, `${TEXT.EDIT_PROMPT}\n\n${askMap[nextStep]}`, {
     reply_markup: keyboardMap[nextStep]
   });
+}
+
+function newState(step, data = {}, isEditing = false) {
+  return { step, data: normalizeDraft(data), isEditing };
+}
+
+function normalizeDraft(data) {
+  const photoIds = Array.isArray(data.photo_file_ids)
+    ? data.photo_file_ids.filter(Boolean)
+    : typeof data.photo_file_ids === "string" && data.photo_file_ids !== SKIP_VALUE && data.photo_file_ids
+      ? data.photo_file_ids.split(",").map((item) => item.trim()).filter(Boolean)
+      : [];
+
+  return {
+    name: data.name || "",
+    phone: data.phone || "",
+    email: data.email || "",
+    address: data.address || "",
+    description: data.description || "",
+    call_time: data.call_time || "",
+    location_lat: data.location_lat || "",
+    location_lon: data.location_lon || "",
+    location_label: data.location_label || "",
+    photo_file_ids: photoIds,
+    photo_count: String(data.photo_count || photoIds.length || 0)
+  };
 }
 
 function mapStatusCode(statusCode) {
@@ -518,11 +644,11 @@ function mapStatusCode(statusCode) {
 }
 
 function buildApplicationPayload(user, formData, env) {
-  const requestId = generateRequestId();
   const createdAt = formatDateTime(env, new Date());
+  const photoIds = Array.isArray(formData.photo_file_ids) ? formData.photo_file_ids.filter(Boolean) : [];
 
   return {
-    request_id: requestId,
+    request_id: generateRequestId(),
     created_at: createdAt,
     source: "telegram",
     telegram_id: String(user?.id || ""),
@@ -530,12 +656,17 @@ function buildApplicationPayload(user, formData, env) {
     name: formData.name || "",
     phone: formData.phone || "",
     email: formData.email || SKIP_VALUE,
-    address: formData.address || "",
+    address: formData.address || SKIP_VALUE,
     description: formData.description || "",
     call_time: formData.call_time || SKIP_VALUE,
     status: STATUS_NEW,
     updated_at: createdAt,
-    last_admin_action: ""
+    last_admin_action: "",
+    location_lat: formData.location_lat || "",
+    location_lon: formData.location_lon || "",
+    location_label: formData.location_label || "",
+    photo_file_ids: photoIds.join(","),
+    photo_count: String(photoIds.length)
   };
 }
 
@@ -548,6 +679,12 @@ async function notifyAdmins(env, payload) {
       await sendMessage(env, adminId, text, {
         reply_markup: adminStatusKeyboard(payload.request_id)
       });
+      if (payload.photo_file_ids) {
+        const photoIds = String(payload.photo_file_ids).split(",").map((item) => item.trim()).filter(Boolean);
+        for (const fileId of photoIds) {
+          await sendPhoto(env, adminId, fileId, `📷 Фото до заявки <b>${escapeHtml(payload.request_id)}</b>`);
+        }
+      }
     } catch (error) {
       await logError(env, "notifyAdmins", error, { adminId, requestId: payload.request_id });
     }
@@ -564,7 +701,7 @@ async function notifyClientAboutStatus(env, row, statusValue) {
   ].join("\n");
 
   try {
-    await sendMessage(env, chatId, text, { reply_markup: afterSubmitKeyboard() });
+    await sendMessage(env, chatId, text, { reply_markup: afterSubmitKeyboard(false) });
     return true;
   } catch (error) {
     await logError(env, "notifyClientAboutStatus", error, { chatId, requestId: row?.request_id, statusValue });
@@ -572,87 +709,106 @@ async function notifyClientAboutStatus(env, row, statusValue) {
   }
 }
 
-async function sendUserRequests(env, chatId) {
+async function sendUserRequests(env, chatId, userId) {
   const rows = await getApplications(env);
   const userRows = rows.filter((row) => String(row.telegram_id || "") === String(chatId));
 
   if (!userRows.length) {
-    await sendMessage(env, chatId, TEXT.NO_REQUESTS, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(env, chatId, TEXT.NO_REQUESTS, { reply_markup: mainMenuKeyboard(isAdmin(env, userId)) });
     return;
   }
 
-  const chunks = userRows
-    .sort(compareRowsByCreatedAtDesc)
-    .slice(0, 10)
-    .map(formatRequestSummary);
-
-  await sendMessage(env, chatId, `<b>Ваші заявки:</b>\n\n${chunks.join("\n\n──────────\n\n")}`, {
-    reply_markup: mainMenuKeyboard()
-  });
+  await sendChunkedText(
+    env,
+    chatId,
+    `<b>Ваші заявки:</b>\n\n${userRows.sort(compareRowsByCreatedAtDesc).slice(0, 15).map(formatRequestSummary).join("\n\n──────────\n\n")}`,
+    mainMenuKeyboard(isAdmin(env, userId))
+  );
 }
 
 async function sendAdminRequestsByStatus(env, chatId, status, emptyText) {
   const rows = await getApplications(env);
-  const filtered = rows.filter((row) => String(row.status || "") === status).sort(compareRowsByCreatedAtDesc).slice(0, 10);
+  const filtered = rows.filter((row) => String(row.status || "") === status).sort(compareRowsByCreatedAtDesc).slice(0, 15);
 
   if (!filtered.length) {
-    await sendMessage(env, chatId, emptyText, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(env, chatId, emptyText, { reply_markup: mainMenuKeyboard(true) });
     return;
   }
 
   const text = `<b>Заявки зі статусом ${escapeHtml(status)}:</b>\n\n${filtered.map(formatRequestSummary).join("\n\n──────────\n\n")}`;
-  await sendMessage(env, chatId, text, { reply_markup: mainMenuKeyboard() });
+  await sendChunkedText(env, chatId, text, mainMenuKeyboard(true));
 }
 
 async function sendTodayRequests(env, chatId) {
   const rows = await getApplications(env);
   const todayPrefix = formatDatePrefix(env, new Date());
-  const filtered = rows.filter((row) => String(row.created_at || "").startsWith(todayPrefix)).sort(compareRowsByCreatedAtDesc).slice(0, 10);
+  const filtered = rows
+    .filter((row) => String(row.created_at || "").startsWith(todayPrefix))
+    .sort(compareRowsByCreatedAtDesc)
+    .slice(0, 15);
 
   if (!filtered.length) {
-    await sendMessage(env, chatId, TEXT.TODAY_EMPTY, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(env, chatId, TEXT.TODAY_EMPTY, { reply_markup: mainMenuKeyboard(true) });
     return;
   }
 
-  const text = `<b>Заявки за сьогодні:</b>\n\n${filtered.map(formatRequestSummary).join("\n\n──────────\n\n")}`;
-  await sendMessage(env, chatId, text, { reply_markup: mainMenuKeyboard() });
+  const text = `<b>Заявки за сьогодні (${filtered.length}):</b>\n\n${filtered.map(formatRequestSummary).join("\n\n──────────\n\n")}`;
+  await sendChunkedText(env, chatId, text, mainMenuKeyboard(true));
 }
 
 async function sendStats(env, chatId) {
   const rows = await getApplications(env);
   if (!rows.length) {
-    await sendMessage(env, chatId, TEXT.STATS_EMPTY, { reply_markup: mainMenuKeyboard() });
+    await sendMessage(env, chatId, TEXT.STATS_EMPTY, { reply_markup: mainMenuKeyboard(true) });
     return;
   }
 
-  const counters = {
-    total: rows.length,
-    new: 0,
-    callback: 0,
-    inProgress: 0,
-    done: 0,
-    cancelled: 0
-  };
-
+  const counters = { total: rows.length, new: 0, callback: 0, inProgress: 0, done: 0, cancelled: 0, photos: 0, geos: 0 };
   for (const row of rows) {
     if (row.status === STATUS_NEW) counters.new += 1;
     if (row.status === STATUS_CALLBACK) counters.callback += 1;
     if (row.status === STATUS_IN_PROGRESS) counters.inProgress += 1;
     if (row.status === STATUS_DONE) counters.done += 1;
     if (row.status === STATUS_CANCELLED) counters.cancelled += 1;
+    if (Number(row.photo_count || 0) > 0) counters.photos += 1;
+    if (row.location_lat && row.location_lon) counters.geos += 1;
   }
+
+  const todayPrefix = formatDatePrefix(env, new Date());
+  const todayCount = rows.filter((row) => String(row.created_at || "").startsWith(todayPrefix)).length;
 
   const text = [
     "<b>Статистика заявок</b>",
     `Усього: <b>${counters.total}</b>`,
+    `Сьогодні: <b>${todayCount}</b>`,
     `Нова: <b>${counters.new}</b>`,
     `Передзвонити: <b>${counters.callback}</b>`,
     `В роботі: <b>${counters.inProgress}</b>`,
     `Виконана: <b>${counters.done}</b>`,
-    `Скасована: <b>${counters.cancelled}</b>`
+    `Скасована: <b>${counters.cancelled}</b>`,
+    `З фото: <b>${counters.photos}</b>`,
+    `З геолокацією: <b>${counters.geos}</b>`
   ].join("\n");
 
-  await sendMessage(env, chatId, text, { reply_markup: mainMenuKeyboard() });
+  await sendMessage(env, chatId, text, { reply_markup: mainMenuKeyboard(true) });
+}
+
+async function findRequestsByPhone(env, chatId, commandText) {
+  const phone = normalizePhone(commandText.replace("/find_phone", "").trim());
+  if (!phone) {
+    await sendMessage(env, chatId, TEXT.FIND_PHONE_USAGE, { reply_markup: mainMenuKeyboard(true) });
+    return;
+  }
+
+  const rows = await getApplications(env);
+  const matched = rows.filter((row) => normalizePhone(row.phone || "") === phone).sort(compareRowsByCreatedAtDesc).slice(0, 15);
+  if (!matched.length) {
+    await sendMessage(env, chatId, TEXT.FIND_PHONE_EMPTY, { reply_markup: mainMenuKeyboard(true) });
+    return;
+  }
+
+  const text = `<b>Заявки за номером ${escapeHtml(phone)}:</b>\n\n${matched.map(formatRequestSummary).join("\n\n──────────\n\n")}`;
+  await sendChunkedText(env, chatId, text, mainMenuKeyboard(true));
 }
 
 function formatAdminMessage(payload) {
@@ -668,13 +824,16 @@ function formatAdminMessage(payload) {
     `🕒 <b>Зручний час:</b> ${escapeHtml(payload.call_time)}`,
     `💬 <b>Telegram ID:</b> ${escapeHtml(payload.telegram_id)}`,
     `🔗 <b>Username:</b> ${escapeHtml(payload.username || "—")}`,
-    `📌 <b>Статус:</b> ${escapeHtml(payload.status)}`
+    `📌 <b>Статус:</b> ${escapeHtml(payload.status)}`,
+    `📷 <b>Фото:</b> ${escapeHtml(payload.photo_count || "0")}`
   ];
 
+  if (payload.location_lat && payload.location_lon) {
+    lines.push(`🗺 <b>Геолокація:</b> ${escapeHtml(payload.location_label || `${payload.location_lat},${payload.location_lon}`)}`);
+  }
   if (payload.updated_at) {
     lines.push(`🛠 <b>Оновлено:</b> ${escapeHtml(payload.updated_at)}`);
   }
-
   if (payload.last_admin_action) {
     lines.push(`👨‍🔧 <b>Остання дія:</b> ${escapeHtml(payload.last_admin_action)}`);
   }
@@ -683,18 +842,24 @@ function formatAdminMessage(payload) {
 }
 
 function formatClientPreview(data) {
-  return [
+  const photoCount = Array.isArray(data.photo_file_ids) ? data.photo_file_ids.length : Number(data.photo_count || 0);
+  const lines = [
     `👤 <b>Ім'я:</b> ${escapeHtml(data.name || "—")}`,
     `📞 <b>Телефон:</b> ${escapeHtml(data.phone || "—")}`,
     `✉️ <b>Email:</b> ${escapeHtml(data.email || SKIP_VALUE)}`,
     `📍 <b>Адреса:</b> ${escapeHtml(data.address || "—")}`,
     `📝 <b>Опис:</b> ${escapeHtml(data.description || "—")}`,
-    `🕒 <b>Зручний час:</b> ${escapeHtml(data.call_time || SKIP_VALUE)}`
-  ].join("\n");
+    `🕒 <b>Зручний час:</b> ${escapeHtml(data.call_time || SKIP_VALUE)}`,
+    `📷 <b>Фото:</b> ${escapeHtml(String(photoCount || 0))}`
+  ];
+  if (data.location_lat && data.location_lon) {
+    lines.push(`🗺 <b>Геолокація:</b> ${escapeHtml(data.location_label || `${data.location_lat},${data.location_lon}`)}`);
+  }
+  return lines.join("\n");
 }
 
 function formatRequestSummary(row) {
-  return [
+  const parts = [
     `🆔 <b>${escapeHtml(row.request_id || "-")}</b>`,
     `📅 ${escapeHtml(row.created_at || "-")}`,
     `👤 ${escapeHtml(row.name || "-")}`,
@@ -702,7 +867,10 @@ function formatRequestSummary(row) {
     `📍 ${escapeHtml(row.address || "-")}`,
     `📝 ${escapeHtml(trimText(row.description || "-", 180))}`,
     `📌 Статус: <b>${escapeHtml(row.status || "-")}</b>`
-  ].join("\n");
+  ];
+  if (Number(row.photo_count || 0) > 0) parts.push(`📷 Фото: <b>${escapeHtml(String(row.photo_count || 0))}</b>`);
+  if (row.location_lat && row.location_lon) parts.push(`🗺 Гео: <b>так</b>`);
+  return parts.join("\n");
 }
 
 function replaceStatusInText(text, newStatus, updatedAt, adminUser) {
@@ -731,15 +899,16 @@ function replaceStatusInText(text, newStatus, updatedAt, adminUser) {
   if (!statusReplaced) updated.push(`📌 <b>Статус:</b> ${escapeHtml(newStatus)}`);
   if (!updatedReplaced) updated.push(`🛠 <b>Оновлено:</b> ${escapeHtml(updatedAt || "—")}`);
   if (!adminReplaced) updated.push(`👨‍🔧 <b>Остання дія:</b> ${escapeHtml(adminLabel)}`);
-
   return updated.join("\n");
 }
 
-function mainMenuKeyboard() {
-  return {
-    keyboard: [[{ text: "Створити заявку" }], [{ text: "Мої заявки" }]],
-    resize_keyboard: true
-  };
+function mainMenuKeyboard(isAdminUser = false) {
+  const keyboard = [[{ text: "Створити заявку" }], [{ text: "Мої заявки" }]];
+  if (isAdminUser) {
+    keyboard.push([{ text: "/new_requests" }, { text: "/today" }]);
+    keyboard.push([{ text: "/stats" }]);
+  }
+  return { keyboard, resize_keyboard: true };
 }
 
 function cancelKeyboard() {
@@ -750,11 +919,28 @@ function skipKeyboard() {
   return { keyboard: [[{ text: "Пропустити" }], [{ text: "/cancel" }]], resize_keyboard: true };
 }
 
-function afterSubmitKeyboard() {
+function addressKeyboard() {
   return {
-    keyboard: [[{ text: "Створити заявку" }], [{ text: "Мої заявки" }], [{ text: "Головне меню" }]],
-    resize_keyboard: true
+    keyboard: [
+      [{ text: "📍 Надіслати геолокацію", request_location: true }],
+      [{ text: "/cancel" }]
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true
   };
+}
+
+function photoKeyboard(includeSkip) {
+  const rows = [[{ text: "Готово з фото" }]];
+  if (includeSkip) rows.push([{ text: "Пропустити" }]);
+  rows.push([{ text: "/cancel" }]);
+  return { keyboard: rows, resize_keyboard: true };
+}
+
+function afterSubmitKeyboard(isAdminUser = false) {
+  const keyboard = [[{ text: "Створити заявку" }], [{ text: "Мої заявки" }], [{ text: "Головне меню" }]];
+  if (isAdminUser) keyboard.push([{ text: "/new_requests" }, { text: "/today" }]);
+  return { keyboard, resize_keyboard: true };
 }
 
 function adminStatusKeyboard(requestId) {
@@ -788,9 +974,17 @@ function confirmKeyboard() {
         { text: "✏️ Опис", callback_data: `${CALLBACKS.EDIT_PREFIX}description` },
         { text: "✏️ Час", callback_data: `${CALLBACKS.EDIT_PREFIX}call_time` }
       ],
+      [{ text: "✏️ Фото", callback_data: `${CALLBACKS.EDIT_PREFIX}photos` }],
       [{ text: "❌ Скасувати", callback_data: CALLBACKS.CONFIRM_CANCEL }]
     ]
   };
+}
+
+async function sendChunkedText(env, chatId, text, replyMarkup) {
+  const chunks = splitLongText(text, 3800);
+  for (let i = 0; i < chunks.length; i++) {
+    await sendMessage(env, chatId, chunks[i], i === chunks.length - 1 ? { reply_markup: replyMarkup } : {});
+  }
 }
 
 async function sendMessage(env, chatId, text, extra = {}) {
@@ -800,6 +994,15 @@ async function sendMessage(env, chatId, text, extra = {}) {
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...extra
+  });
+}
+
+async function sendPhoto(env, chatId, fileId, caption = "") {
+  return await telegramApi(env, "sendPhoto", {
+    chat_id: chatId,
+    photo: fileId,
+    caption,
+    parse_mode: "HTML"
   });
 }
 
@@ -832,9 +1035,7 @@ async function getState(env, chatId) {
 }
 
 async function saveState(env, chatId, state) {
-  await env.STATE_KV.put(`state:${chatId}`, JSON.stringify(state), {
-    expirationTtl: 60 * 60 * 24
-  });
+  await env.STATE_KV.put(`state:${chatId}`, JSON.stringify(state), { expirationTtl: 60 * 60 * 24 });
 }
 
 async function clearState(env, chatId) {
@@ -854,7 +1055,7 @@ async function checkRateLimit(env, chatId, userId) {
 
   bucket.count += 1;
   await env.STATE_KV.put(key, JSON.stringify(bucket), { expirationTtl: 60 });
-  return bucket.count <= 12;
+  return bucket.count <= 15;
 }
 
 function validateName(value) {
@@ -902,7 +1103,8 @@ function hashPayload(payload) {
     payload.email,
     payload.address,
     payload.description,
-    payload.call_time
+    payload.call_time,
+    payload.photo_file_ids
   ].join("|");
 
   let hash = 0;
@@ -923,22 +1125,17 @@ function validateEnv(env) {
 
 async function appendApplication(env, application) {
   const context = await ensureWorksheet(env);
-  const fullHeaders = context.headers;
-  const row = fullHeaders.map((header) => application[header] ?? "");
-  await sheetsAppend(env, `${getWorksheetName(env)}!A:${indexToColumn(fullHeaders.length - 1)}`, [row]);
+  const row = context.headers.map((header) => application[header] ?? "");
+  await sheetsAppend(env, `${getWorksheetName(env)}!A:${indexToColumn(context.headers.length - 1)}`, [row]);
 }
 
 async function getApplications(env) {
   const context = await ensureWorksheet(env);
-  const fullHeaders = context.headers;
-  const lastColumn = indexToColumn(fullHeaders.length - 1);
-  const values = await sheetsGetValues(env, `${getWorksheetName(env)}!A:${lastColumn}`);
+  const values = await sheetsGetValues(env, `${getWorksheetName(env)}!A:${indexToColumn(context.headers.length - 1)}`);
   if (!values.length) return [];
 
   const headers = values[0];
-  const rows = values.slice(1);
-
-  return rows.map((row) => {
+  return values.slice(1).map((row) => {
     const item = {};
     headers.forEach((header, index) => {
       item[header] = row[index] ?? "";
@@ -950,53 +1147,40 @@ async function getApplications(env) {
 async function updateApplicationStatus(env, requestId, newStatus, adminUser) {
   const context = await ensureWorksheet(env);
   const headers = context.headers;
-  const lastColumn = indexToColumn(headers.length - 1);
-  const values = await sheetsGetValues(env, `${getWorksheetName(env)}!A:${lastColumn}`);
+  const values = await sheetsGetValues(env, `${getWorksheetName(env)}!A:${indexToColumn(headers.length - 1)}`);
   if (values.length <= 1) return { ok: false };
 
   const requestIdIndex = headers.indexOf("request_id");
   const statusIndex = headers.indexOf("status");
   const updatedAtIndex = headers.indexOf("updated_at");
   const adminActionIndex = headers.indexOf("last_admin_action");
-
   if (requestIdIndex === -1 || statusIndex === -1) return { ok: false };
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    if ((row[requestIdIndex] || "") === requestId) {
-      const rowNumber = i + 1;
-      const updatedAt = formatDateTime(env, new Date());
-      const rowObject = {};
-      headers.forEach((header, index) => {
-        rowObject[header] = row[index] ?? "";
-      });
-      rowObject.status = newStatus;
-      rowObject.updated_at = updatedAt;
-      rowObject.last_admin_action = formatAdminLabel(adminUser);
+    if ((row[requestIdIndex] || "") !== requestId) continue;
 
-      const updates = [];
-      updates.push(sheetsUpdateValues(
-        env,
-        `${getWorksheetName(env)}!${indexToColumn(statusIndex)}${rowNumber}`,
-        [[newStatus]]
-      ));
-      if (updatedAtIndex !== -1) {
-        updates.push(sheetsUpdateValues(
-          env,
-          `${getWorksheetName(env)}!${indexToColumn(updatedAtIndex)}${rowNumber}`,
-          [[updatedAt]]
-        ));
-      }
-      if (adminActionIndex !== -1) {
-        updates.push(sheetsUpdateValues(
-          env,
-          `${getWorksheetName(env)}!${indexToColumn(adminActionIndex)}${rowNumber}`,
-          [[formatAdminLabel(adminUser)]]
-        ));
-      }
-      await Promise.all(updates);
-      return { ok: true, row: rowObject, updatedAt };
+    const rowNumber = i + 1;
+    const updatedAt = formatDateTime(env, new Date());
+    const rowObject = {};
+    headers.forEach((header, index) => {
+      rowObject[header] = row[index] ?? "";
+    });
+    rowObject.status = newStatus;
+    rowObject.updated_at = updatedAt;
+    rowObject.last_admin_action = formatAdminLabel(adminUser);
+
+    const updates = [
+      sheetsUpdateValues(env, `${getWorksheetName(env)}!${indexToColumn(statusIndex)}${rowNumber}`, [[newStatus]])
+    ];
+    if (updatedAtIndex !== -1) {
+      updates.push(sheetsUpdateValues(env, `${getWorksheetName(env)}!${indexToColumn(updatedAtIndex)}${rowNumber}`, [[updatedAt]]));
     }
+    if (adminActionIndex !== -1) {
+      updates.push(sheetsUpdateValues(env, `${getWorksheetName(env)}!${indexToColumn(adminActionIndex)}${rowNumber}`, [[formatAdminLabel(adminUser)]]));
+    }
+    await Promise.all(updates);
+    return { ok: true, row: rowObject, updatedAt };
   }
 
   return { ok: false };
@@ -1008,9 +1192,7 @@ async function ensureWorksheet(env) {
   let found = metadata.sheets?.find((sheet) => sheet.properties?.title === sheetTitle);
 
   if (!found) {
-    await sheetsBatchUpdate(env, {
-      requests: [{ addSheet: { properties: { title: sheetTitle } } }]
-    });
+    await sheetsBatchUpdate(env, { requests: [{ addSheet: { properties: { title: sheetTitle } } }] });
     const refreshed = await sheetsGetMetadata(env);
     found = refreshed.sheets?.find((sheet) => sheet.properties?.title === sheetTitle);
   }
@@ -1032,11 +1214,7 @@ async function ensureWorksheet(env) {
   }
 
   if (mergedHeaders.length !== firstRow.length) {
-    await sheetsUpdateValues(
-      env,
-      `${sheetTitle}!A1:${indexToColumn(mergedHeaders.length - 1)}1`,
-      [mergedHeaders]
-    );
+    await sheetsUpdateValues(env, `${sheetTitle}!A1:${indexToColumn(mergedHeaders.length - 1)}1`, [mergedHeaders]);
   }
 
   return { headers: mergedHeaders, sheetId: found?.properties?.sheetId };
@@ -1054,15 +1232,12 @@ async function ensureLogsWorksheet(env) {
   const metadata = await sheetsGetMetadata(env);
   const sheetTitle = getLogsWorksheetName(env);
   const found = metadata.sheets?.find((sheet) => sheet.properties?.title === sheetTitle);
-
   if (!found) {
-    await sheetsBatchUpdate(env, {
-      requests: [{ addSheet: { properties: { title: sheetTitle } } }]
-    });
+    await sheetsBatchUpdate(env, { requests: [{ addSheet: { properties: { title: sheetTitle } } }] });
   }
 
   const values = await sheetsGetValues(env, `${sheetTitle}!A1:E1`);
-  if (!values.length || !values[0] || values[0].length === 0) {
+  if (!values.length || !values[0] || !values[0].length) {
     await sheetsUpdateValues(env, `${sheetTitle}!A1:E1`, [LOG_HEADERS]);
   }
 }
@@ -1087,10 +1262,7 @@ async function sheetsUpdateValues(env, range, values) {
   return await googleApi(
     env,
     `https://sheets.googleapis.com/v4/spreadsheets/${env.GOOGLE_SHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
-    {
-      method: "PUT",
-      body: { range, majorDimension: "ROWS", values }
-    }
+    { method: "PUT", body: { range, majorDimension: "ROWS", values } }
   );
 }
 
@@ -1098,10 +1270,7 @@ async function sheetsAppend(env, range, values) {
   return await googleApi(
     env,
     `https://sheets.googleapis.com/v4/spreadsheets/${env.GOOGLE_SHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`,
-    {
-      method: "POST",
-      body: { range, majorDimension: "ROWS", values }
-    }
+    { method: "POST", body: { range, majorDimension: "ROWS", values } }
   );
 }
 
@@ -1140,7 +1309,6 @@ async function getGoogleAccessToken(env) {
 
   const serviceAccount = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
   const now = Math.floor(Date.now() / 1000);
-
   const jwtHeader = { alg: "RS256", typ: "JWT" };
   const jwtClaimSet = {
     iss: serviceAccount.client_email,
@@ -1172,7 +1340,6 @@ async function getGoogleAccessToken(env) {
     token: tokenData.access_token,
     expiresAt: Date.now() + (tokenData.expires_in || 3600) * 1000
   };
-
   return cachedGoogleToken.token;
 }
 
@@ -1240,8 +1407,33 @@ function trimText(value, maxLength) {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
+function splitLongText(text, maxLength) {
+  if (text.length <= maxLength) return [text];
+  const parts = [];
+  let rest = text;
+  while (rest.length > maxLength) {
+    let splitAt = rest.lastIndexOf("\n\n", maxLength);
+    if (splitAt < 1000) splitAt = rest.lastIndexOf("\n", maxLength);
+    if (splitAt < 500) splitAt = maxLength;
+    parts.push(rest.slice(0, splitAt));
+    rest = rest.slice(splitAt).trimStart();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
 function compareRowsByCreatedAtDesc(a, b) {
-  return String(b.created_at || "").localeCompare(String(a.created_at || ""), "uk");
+  return parseDateTimeValue(b.created_at) - parseDateTimeValue(a.created_at);
+}
+
+function parseDateTimeValue(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{2})\.(\d{2})\.(\d{4}),?\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (match) {
+    const [, dd, mm, yyyy, hh, mi, ss] = match;
+    return new Date(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}Z`).getTime();
+  }
+  return 0;
 }
 
 function formatDateTime(env, date) {
@@ -1260,13 +1452,12 @@ function formatDateTime(env, date) {
 
 function formatDatePrefix(env, date) {
   const timezone = env.TIMEZONE || DEFAULT_TIMEZONE;
-  const parts = new Intl.DateTimeFormat("uk-UA", {
+  return new Intl.DateTimeFormat("uk-UA", {
     timeZone: timezone,
     day: "2-digit",
     month: "2-digit",
     year: "numeric"
   }).format(date);
-  return parts;
 }
 
 function formatAdminLabel(adminUser) {
