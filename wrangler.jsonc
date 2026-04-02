@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "technoperspekt1va",
+  "main": "src/index.js",
+  "compatibility_date": "2026-03-30",
+  "kv_namespaces": [
+    {
+      "binding": "STATE_KV",
+      "id": "b9fe822117594f69a9394e01659e4ede"
+    }
+  ],
+  "vars": {
+    "GOOGLE_SHEET_ID": "1DpG3uWokf1Sa1XepD_qUjiF089m5hGoL4nKWorIm3fw",
+    "ADMIN_IDS": "960724157,375938798",
+    "WORKSHEET_NAME": "Applications",
+    "TIMEZONE": "Europe/Kyiv",
+    "SETUP_KEY": "techno-perspektyva-setup-2026",
+    "TELEGRAM_WEBHOOK_SECRET": "techno-perspektyva-webhook-2026",
+    "BOT_TOKEN": "8562263090:AAEanrIkYQufyyuaG1NwX2eV3WkYr4Yyhr0"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
