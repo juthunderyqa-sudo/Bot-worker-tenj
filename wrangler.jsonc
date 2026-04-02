@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "Botworkertenj",
+  "name": "bot-worker-tenj",
   "main": "src/index.js",
   "compatibility_date": "2026-03-30",
   "kv_namespaces": [
