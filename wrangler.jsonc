@@ -6,7 +6,7 @@
   "kv_namespaces": [
     {
       "binding": "STATE_KV",
-      "id": "b9fe822117594f69a9394e01659e4ede"
+      "id": "c84e37658b5f4aae888ca1b972b0379a"
     }
   ],
   "vars": {
@@ -16,7 +16,7 @@
     "TIMEZONE": "Europe/Kyiv",
     "SETUP_KEY": "techno-perspektyva-setup-2026",
     "TELEGRAM_WEBHOOK_SECRET": "techno-perspektyva-webhook-2026",
-    "BOT_TOKEN": "8562263090:AAEanrIkYQufyyuaG1NwX2eV3WkYr4Yyhr0"
+    "BOT_TOKEN": "7216380981:AAHJc38EdCkxpKbzInvH4n9NPI3dj3cgxNk"
   },
   "observability": {
     "enabled": true
