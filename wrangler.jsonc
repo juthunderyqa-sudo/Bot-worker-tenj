@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "techno-perspektyva-cloudflare-worker",
+  "main": "index.js",
+  "compatibility_date": "2026-04-02",
+  "workers_dev": true,
+  "kv_namespaces": [
+    {
+      "binding": "STATE_KV",
+      "id": "PUT_YOUR_KV_NAMESPACE_ID_HERE"
+    }
+  ],
+  "vars": {
+    "ADMIN_IDS": "123456789,987654321",
+    "WORKSHEET_NAME": "Applications",
+    "TIMEZONE": "Europe/Kyiv",
+    "SETUP_KEY": "change-me",
+    "TELEGRAM_WEBHOOK_SECRET": "change-me",
+    "GOOGLE_SHEET_ID": "put_google_sheet_id_here"
+  }
+}
