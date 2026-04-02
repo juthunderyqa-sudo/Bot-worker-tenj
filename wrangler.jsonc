@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "bot-worker-tenj",
   "main": "src/index.js",
-  "compatibility_date": "2026-03-30",
+  "compatibility_date": "2026-04-02",
   "kv_namespaces": [
     {
       "binding": "STATE_KV",
@@ -10,9 +10,10 @@
     }
   ],
   "vars": {
-    "GOOGLE_SHEET_ID": "11uUpnHw-9JMvip3YRUwBey6z5GYR44WaEb0gWVAQ5bo",
+    "GOOGLE_SHEET_ID": "16YcECOXT1VJjUJqT0eNvVyfhedALvHSj4NBMEbFcMGk",
     "ADMIN_IDS": "960724157,375938798",
     "WORKSHEET_NAME": "Applications",
+    "LOGS_WORKSHEET_NAME": "BotLogs",
     "TIMEZONE": "Europe/Kyiv",
     "SETUP_KEY": "techno-perspektyva-setup-2026",
     "TELEGRAM_WEBHOOK_SECRET": "techno-perspektyva-webhook-2026",

@@ -1,54 +1,78 @@
-# Асистент  — Cloudflare Workers
+# Techno Perspektyva Bot 2.0
 
-Готовий шаблон Telegram-бота для прийому заявок через Cloudflare Workers + KV + Google Sheets.
+Оновлений Telegram-бот для Cloudflare Workers + KV + Google Sheets.
 
-## Можливості
-- прийом заявок українською
-- ім'я
-- телефон
-- email (опціонально)
-- адреса
-- опис задачі
-- зручний час для дзвінка (опціонально)
-- запис у Google Sheets
-- повідомлення двом адміністраторам
-- статуси: Нова / В роботі / Виконана
-- команда /my_requests
-- збереження стану діалогу в KV
+## Що вже додано
+- покрокова форма заявки
+- підтвердження заявки перед записом у таблицю
+- редагування полів перед підтвердженням
+- антидубль заявки
+- базовий anti-flood
+- статуси: Нова / Передзвонити / В роботі / Виконана / Скасована
+- автоматичне повідомлення клієнту при зміні статусу
+- команди для адміна: /new_requests, /today, /stats
+- логування помилок у лист `BotLogs`
+- сумісність зі старими записами в існуючій таблиці
+- автоматичне розширення заголовків таблиці без видалення старих даних
 
-## Що треба додати в Cloudflare
-### Variables
-- BOT_TOKEN
-- GOOGLE_SHEET_ID
-- ADMIN_IDS
-- WORKSHEET_NAME
-- TIMEZONE
-- SETUP_KEY
-- TELEGRAM_WEBHOOK_SECRET
+## Структура
+- `src/index.js` — основний код воркера
+- `wrangler.jsonc` — конфіг Cloudflare Worker
+- `dev.vars.example` — локальні змінні
+- `bot-worker-tenj-4170b24bae14.json` — service account JSON
 
-### Secret
-- GOOGLE_SERVICE_ACCOUNT_JSON
+## Поточні аркуші Google Sheets
+- основний: `Applications`
+- логи: `BotLogs`
 
-## Як підготувати таблицю
-1. Створи нову Google Sheets таблицю
-2. Скопіюй її Sheet ID
-3. Поділись таблицею з email service account як Редактор
+## Що зміниться в таблиці
+Існуючі колонки не ламаються.
 
-## Ендпоїнти
-- / — health check
-- /setup?key=... — встановлення webhook і команд
-- /webhook — Telegram webhook
+Базові колонки залишаються ті самі:
+- request_id
+- created_at
+- source
+- telegram_id
+- username
+- name
+- phone
+- email
+- address
+- description
+- call_time
+- status
 
-## Деплой без терміналу
-1. Завантаж проєкт у GitHub
-2. У Cloudflare відкрий Workers & Pages
-3. Create application
-4. Import a repository
-5. Обери GitHub репозиторій
-6. Створи KV namespace і встав його ID у wrangler.jsonc
-7. Додай Variables і Secrets
-8. Після деплою відкрий:
-   https://YOUR-WORKER.workers.dev/setup?key=ТВОЄ_ЗНАЧЕННЯ_SETUP_KEY
+Додатково бот може автоматично дозаписати праворуч нові колонки:
+- updated_at
+- last_admin_action
+
+Старі рядки залишаться на місці.
+
+## Як задеплоїти
+1. Завантаж цей проєкт у Cloudflare Worker
+2. Переконайся, що KV namespace `STATE_KV` існує
+3. У Variables/Secrets мають бути:
+   - BOT_TOKEN
+   - GOOGLE_SHEET_ID
+   - ADMIN_IDS
+   - WORKSHEET_NAME
+   - LOGS_WORKSHEET_NAME
+   - TIMEZONE
+   - SETUP_KEY
+   - TELEGRAM_WEBHOOK_SECRET
+   - GOOGLE_SERVICE_ACCOUNT_JSON
+4. Після деплою відкрий:
+   - `https://YOUR-WORKER.workers.dev/setup?key=techno-perspektyva-setup-2026`
+
+## Нові команди
+- `/start`
+- `/my_requests`
+- `/new_requests`
+- `/today`
+- `/stats`
+- `/cancel`
 
 ## Важливо
-Не заливай токени і Google key у GitHub.
+- якщо деплоїш через GitHub, не публікуй секрети у відкритий репозиторій
+- service account повинен мати доступ редактора до таблиці
+- бот сам створить аркуш `BotLogs`, якщо його ще немає
