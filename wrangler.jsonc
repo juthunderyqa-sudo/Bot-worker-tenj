@@ -19,7 +19,7 @@
     "SETUP_KEY": "techno-perspektyva-setup-2026",
     "TELEGRAM_WEBHOOK_SECRET": "techno-perspektyva-webhook-2026",
     "BOT_TOKEN": "7216380981:AAHJc38EdCkxpKbzInvH4n9NPI3dj3cgxNk",
-    "GEMINI_API_KEY": "AIzaSyCBqzxnRyx1sy5xRE26XotQh6t67l5_otA",
+    "GEMINI_API_KEY": "AIzaSyCa5xRouNo1TT_681AJ6T-5k1EBUF4OyoU",
     "GEMINI_MODEL": "gemini-2.5-flash"
   },
   "observability": {
