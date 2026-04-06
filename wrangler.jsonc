@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "haircut-booking-bot",
+  "main": "src/index.js",
+  "compatibility_date": "2026-04-06",
+  "kv_namespaces": [
+    {
+      "binding": "STATE_KV",
+      "id": "PUT_YOUR_KV_NAMESPACE_ID_HERE"
+    }
+  ],
+  "vars": {
+    "GOOGLE_SHEET_ID": "PUT_YOUR_GOOGLE_SHEET_ID_HERE",
+    "ADMIN_IDS": "PUT_ADMIN_TELEGRAM_IDS_HERE",
+    "TIMEZONE": "Europe/Kyiv",
+    "SETUP_KEY": "CHANGE_ME_SETUP_KEY",
+    "TELEGRAM_WEBHOOK_SECRET": "CHANGE_ME_WEBHOOK_SECRET",
+    "WORK_START_HOUR": "9",
+    "WORK_END_HOUR": "18",
+    "SLOT_MINUTES": "60",
+    "BOOKINGS_SHEET_NAME": "Bookings",
+    "USERS_SHEET_NAME": "Users",
+    "LOGS_SHEET_NAME": "BotLogs"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
