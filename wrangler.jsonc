@@ -18,6 +18,7 @@
     "SETUP_KEY": "techno-perspektyva-setup-2026",
     "TELEGRAM_WEBHOOK_SECRET": "techno-perspektyva-webhook-2026",
     "BOT_TOKEN": "7216380981:AAHJc38EdCkxpKbzInvH4n9NPI3dj3cgxNk"
+    "ACCESS_PASSWORD": "12345"
   },
   "observability": {
     "enabled": true
